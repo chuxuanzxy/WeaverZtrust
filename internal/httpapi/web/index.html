@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZTrust 管理后台</title>
+    <link rel="stylesheet" href="/ui/app.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">ZT</div>
+          <div>
+            <h1>ZTrust</h1>
+            <p>访问代理与审计网关</p>
+          </div>
+        </div>
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item active" data-view="overview" title="总览">总览</button>
+          <button class="nav-item" data-view="apps" title="应用管理">应用</button>
+          <button class="nav-item" data-view="users" title="用户管理">用户</button>
+          <button class="nav-item" data-view="groups" title="用户组管理">用户组</button>
+          <button class="nav-item" data-view="policies" title="授权策略">授权</button>
+          <button class="nav-item" data-view="logs" title="审计日志">审计</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2 id="viewTitle">总览</h2>
+            <p id="viewSubtitle">入口状态、授权对象与审计概况</p>
+          </div>
+          <div class="session">
+            <span id="sessionUser">未登录</span>
+            <button id="refreshBtn" class="icon-btn" title="刷新">↻</button>
+            <button id="logoutBtn" class="ghost-btn">退出</button>
+          </div>
+        </header>
+
+        <section id="loginPanel" class="login-panel">
+          <form id="loginForm" class="login-box">
+            <h2>管理员登录</h2>
+            <label>
+              账号
+              <input name="username" autocomplete="username" value="admin" required />
+            </label>
+            <label>
+              密码
+              <input name="password" type="password" autocomplete="current-password" required />
+            </label>
+            <button class="primary-btn" type="submit">登录</button>
+          </form>
+        </section>
+
+        <section id="appPanel" class="content hidden">
+          <section class="view active" data-view-panel="overview">
+            <div class="metrics">
+              <article class="metric"><span>应用</span><strong id="metricApps">0</strong></article>
+              <article class="metric"><span>用户</span><strong id="metricUsers">0</strong></article>
+              <article class="metric"><span>用户组</span><strong id="metricGroups">0</strong></article>
+              <article class="metric"><span>授权策略</span><strong id="metricPolicies">0</strong></article>
+            </div>
+            <div class="grid two">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>最近访问</h3>
+                  <button class="small-btn" data-jump="logs">查看</button>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>用户</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead>
+                    <tbody id="recentAccessRows"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>登录记录</h3>
+                  <button class="small-btn" data-log-tab="login" data-jump="logs">查看</button>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>账号</th><th>来源 IP</th><th>结果</th><th>时间</th></tr></thead>
+                    <tbody id="recentLoginRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="apps">
+            <div class="grid form-list">
+              <form id="appForm" class="panel form-panel">
+                <h3>新增应用</h3>
+                <label>应用名称<input name="name" required placeholder="e-cology OA" /></label>
+                <label>访问域名<input name="domain" required placeholder="www.e-cology.com.cn" /></label>
+                <label>后端地址<input name="backend_url" required placeholder="http://10.0.0.10" /></label>
+                <label>代理超时 ms<input name="proxy_timeout_ms" type="number" min="1000" value="30000" /></label>
+                <label class="check"><input name="enabled" type="checkbox" checked />启用</label>
+                <button class="primary-btn" type="submit">保存应用</button>
+              </form>
+              <section class="panel">
+                <h3>应用列表</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>ID</th><th>名称</th><th>域名</th><th>后端</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody id="appRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="users">
+            <div class="grid form-list">
+              <form id="userForm" class="panel form-panel">
+                <h3>新增用户</h3>
+                <label>账号<input name="username" required /></label>
+                <label>姓名<input name="display_name" /></label>
+                <label>密码<input name="password" type="password" required /></label>
+                <label class="check"><input name="is_admin" type="checkbox" />管理员</label>
+                <button class="primary-btn" type="submit">保存用户</button>
+              </form>
+              <section class="panel">
+                <h3>用户列表</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>ID</th><th>账号</th><th>姓名</th><th>角色</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody id="userRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="groups">
+            <div class="grid form-list">
+              <form id="groupForm" class="panel form-panel">
+                <h3>新增用户组</h3>
+                <label>组名<input name="name" required placeholder="OA 灰度用户" /></label>
+                <label>成员 ID<input name="user_ids" placeholder="2,3,4" /></label>
+                <button class="primary-btn" type="submit">保存用户组</button>
+              </form>
+              <section class="panel">
+                <h3>用户组列表</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>ID</th><th>组名</th><th>成员</th><th>操作</th></tr></thead>
+                    <tbody id="groupRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="policies">
+            <div class="grid form-list">
+              <form id="policyForm" class="panel form-panel">
+                <h3>新增授权</h3>
+                <label>应用 ID<input name="app_id" type="number" min="1" required /></label>
+                <label>主体类型
+                  <select name="subject">
+                    <option value="user">用户</option>
+                    <option value="group">用户组</option>
+                  </select>
+                </label>
+                <label>主体 ID<input name="subject_id" type="number" min="1" required /></label>
+                <label>结果
+                  <select name="effect">
+                    <option value="allow">允许</option>
+                  </select>
+                </label>
+                <button class="primary-btn" type="submit">保存授权</button>
+              </form>
+              <section class="panel">
+                <h3>授权列表</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>ID</th><th>应用</th><th>主体</th><th>结果</th><th>创建时间</th><th>操作</th></tr></thead>
+                    <tbody id="policyRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="logs">
+            <section class="panel">
+              <div class="panel-head">
+                <h3>审计日志</h3>
+                <div class="tabs" role="tablist">
+                  <button class="tab active" data-tab="access">访问</button>
+                  <button class="tab" data-tab="login">登录</button>
+                  <button class="tab" data-tab="admin">操作</button>
+                </div>
+              </div>
+              <form id="accessFilter" class="filters">
+                <input name="username" placeholder="用户" />
+                <input name="ip" placeholder="来源 IP" />
+                <input name="path" placeholder="路径" />
+                <input name="status_code" type="number" placeholder="状态码" />
+                <button class="small-btn" type="submit">查询</button>
+              </form>
+              <div class="table-wrap log-table active" data-log-panel="access">
+                <table>
+                  <thead><tr><th>时间</th><th>用户</th><th>IP</th><th>路径</th><th>状态</th><th>耗时</th><th>UA</th></tr></thead>
+                  <tbody id="accessLogRows"></tbody>
+                </table>
+              </div>
+              <div class="table-wrap log-table" data-log-panel="login">
+                <table>
+                  <thead><tr><th>时间</th><th>账号</th><th>IP</th><th>结果</th><th>原因</th></tr></thead>
+                  <tbody id="loginLogRows"></tbody>
+                </table>
+              </div>
+              <div class="table-wrap log-table" data-log-panel="admin">
+                <table>
+                  <thead><tr><th>时间</th><th>管理员</th><th>对象</th><th>动作</th><th>摘要</th></tr></thead>
+                  <tbody id="adminLogRows"></tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/ui/app.js"></script>
+  </body>
+</html>
