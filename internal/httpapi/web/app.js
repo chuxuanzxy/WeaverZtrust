@@ -5,6 +5,7 @@ const state = {
   users: [],
   groups: [],
   policies: [],
+  bodyRules: [],
   activeLogTab: "access",
 };
 
@@ -14,6 +15,7 @@ const titles = {
   users: ["用户管理", "维护本地账号与管理员权限"],
   groups: ["用户组管理", "维护灰度接入用户集合"],
   policies: ["授权配置", "按用户或用户组放行应用入口"],
+  bodyRules: ["正文审计规则", "按应用、路径和状态码控制请求体/响应体留痕"],
   logs: ["审计日志", "查询访问、登录和管理操作记录"],
 };
 
@@ -108,10 +110,31 @@ function bindForms() {
     await refreshAll();
   });
 
+  $("#bodyRuleForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = formData(form);
+    data.app_id = Number(data.app_id || 0);
+    data.methods = splitMethods(data.methods);
+    data.status_min = Number(data.status_min || 0);
+    data.status_max = Number(data.status_max || 0);
+    data.max_body_bytes = Number(data.max_body_bytes || 65536);
+    data.capture_request = form.capture_request.checked;
+    data.capture_response = form.capture_response.checked;
+    data.enabled = form.enabled.checked;
+    const id = Number(form.dataset.editingId || 0);
+    await api(id ? `/admin/body-rules/${id}` : "/admin/body-rules", { method: id ? "PUT" : "POST", body: data });
+    resetBodyRuleForm();
+    toast(id ? "正文规则已更新" : "正文规则已保存");
+    await refreshAll();
+  });
+
   $("#accessFilter").addEventListener("submit", async (event) => {
     event.preventDefault();
     await loadLogs();
   });
+
+  $("#closeAccessDetail").addEventListener("click", () => $("#accessDetailDialog").close());
 }
 
 function bindLogTabs() {
@@ -134,11 +157,25 @@ function bindTableActions() {
       user: `/admin/users/${id}`,
       group: `/admin/groups/${id}`,
       policy: `/admin/policies/${id}`,
+      bodyRule: `/admin/body-rules/${id}`,
     }[type];
     if (!path) return;
     await api(path, { method: "DELETE" });
     toast("已删除");
     await refreshAll();
+  });
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-view-access]");
+    if (!button) return;
+    await openAccessDetail(Number(button.dataset.viewAccess));
+  });
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-edit-body-rule]");
+    if (!button) return;
+    const rule = state.bodyRules.find((item) => item.id === Number(button.dataset.editBodyRule));
+    if (rule) fillBodyRuleForm(rule);
   });
 }
 
@@ -160,17 +197,19 @@ function showLogTab(name) {
 async function refreshAll(options = {}) {
   try {
     const me = await api("/admin/me", {}, { showError: false });
-    const [users, groups, apps, policies] = await Promise.all([
+    const [users, groups, apps, policies, bodyRules] = await Promise.all([
       api("/admin/users"),
       api("/admin/groups"),
       api("/admin/apps"),
       api("/admin/policies"),
+      api("/admin/body-rules"),
     ]);
     state.user = me;
     state.users = users;
     state.groups = groups;
     state.apps = apps;
     state.policies = policies;
+    state.bodyRules = bodyRules;
     renderCore();
     await loadLogs();
     $("#loginPanel").classList.add("hidden");
@@ -210,6 +249,7 @@ function renderCore() {
   $("#metricUsers").textContent = state.users.length;
   $("#metricGroups").textContent = state.groups.length;
   $("#metricPolicies").textContent = state.policies.length;
+  $("#metricBodyRules").textContent = state.bodyRules.length;
   renderRows("#appRows", state.apps, (app) => [
     app.id,
     escapeHTML(app.name),
@@ -240,6 +280,16 @@ function renderCore() {
     fmtTime(policy.created_at),
     deleteButton("policy", policy.id, `策略 ${policy.id}`),
   ]);
+  renderRows("#bodyRuleRows", state.bodyRules, (rule) => [
+    rule.id,
+    escapeHTML(rule.name),
+    rule.app_id || "全部",
+    escapeHTML(`${rule.match_type || "prefix"}:${rule.path_pattern || "*"}`),
+    escapeHTML((rule.methods || []).join(",") || "全部"),
+    escapeHTML([rule.capture_request ? "请求" : "", rule.capture_response ? "响应" : ""].filter(Boolean).join("+") || "-"),
+    badge(rule.enabled ? "启用" : "停用", rule.enabled ? "" : "warn"),
+    `${editButton("bodyRule", rule.id)} ${deleteButton("bodyRule", rule.id, rule.name)}`,
+  ]);
 }
 
 function renderRecent(access, login) {
@@ -265,7 +315,9 @@ function renderAccessLogs(items) {
     escapeHTML(item.path || "-"),
     statusBadge(item.status_code),
     `${item.duration_ms || 0} ms`,
+    bodyBadge(item),
     escapeHTML([item.browser, item.os].filter(Boolean).join(" / ") || item.user_agent || "-"),
+    bodyAction(item),
   ]);
 }
 
@@ -335,6 +387,13 @@ function splitIDs(value) {
     .filter((item) => Number.isInteger(item) && item > 0);
 }
 
+function splitMethods(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
+}
+
 function fmtTime(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -355,8 +414,82 @@ function resultBadge(result) {
   return badge(result || "-", result === "success" ? "" : "bad");
 }
 
+function bodyBadge(item) {
+  const parts = [];
+  if (item.has_request_body) parts.push("请求");
+  if (item.has_response_body) parts.push("响应");
+  return parts.length ? badge(parts.join("+"), "warn") : `<span class="muted">无</span>`;
+}
+
+function bodyAction(item) {
+  if (!item.has_request_body && !item.has_response_body) {
+    return `<span class="muted">-</span>`;
+  }
+  return `<button class="small-btn" data-view-access="${item.id}">详情</button>`;
+}
+
 function deleteButton(type, id, label) {
   return `<button class="danger-btn" data-delete="${type}" data-id="${id}" data-label="${escapeHTML(label)}">删除</button>`;
+}
+
+function editButton(type, id) {
+  if (type !== "bodyRule") return "";
+  return `<button class="small-btn" data-edit-body-rule="${id}">编辑</button>`;
+}
+
+function fillBodyRuleForm(rule) {
+  const form = $("#bodyRuleForm");
+  form.dataset.editingId = rule.id;
+  form.name.value = rule.name || "";
+  form.app_id.value = rule.app_id || "";
+  form.path_pattern.value = rule.path_pattern || "";
+  form.match_type.value = rule.match_type || "prefix";
+  form.methods.value = (rule.methods || []).join(",");
+  form.status_min.value = rule.status_min || "";
+  form.status_max.value = rule.status_max || "";
+  form.max_body_bytes.value = rule.max_body_bytes || 65536;
+  form.capture_request.checked = Boolean(rule.capture_request);
+  form.capture_response.checked = Boolean(rule.capture_response);
+  form.enabled.checked = Boolean(rule.enabled);
+  form.querySelector('button[type="submit"]').textContent = "更新规则";
+  showView("bodyRules");
+}
+
+function resetBodyRuleForm() {
+  const form = $("#bodyRuleForm");
+  form.reset();
+  delete form.dataset.editingId;
+  form.capture_request.checked = true;
+  form.capture_response.checked = true;
+  form.enabled.checked = true;
+  form.max_body_bytes.value = 65536;
+  form.querySelector('button[type="submit"]').textContent = "保存规则";
+}
+
+async function openAccessDetail(id) {
+  const item = await api(`/admin/audit/access/${id}`);
+  $("#accessDetailMeta").textContent = `${fmtTime(item.created_at)} · ${item.username || "-"} · ${item.method || "-"} ${item.path || "-"}`;
+  $("#requestBodyView").textContent = formatBody(item.request_body);
+  $("#responseBodyView").textContent = formatBody(item.response_body);
+  $("#accessDetailDialog").showModal();
+}
+
+function formatBody(payload) {
+  if (!payload || !payload.body) return "暂无正文";
+  const header = [
+    payload.content_type || "unknown",
+    `${payload.stored_size || payload.body.length} bytes`,
+    payload.truncated ? "已截断" : "",
+  ].filter(Boolean).join(" · ");
+  return `${header}\n\n${prettyBody(payload.body)}`;
+}
+
+function prettyBody(body) {
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2);
+  } catch {
+    return body;
+  }
 }
 
 function parseError(text) {

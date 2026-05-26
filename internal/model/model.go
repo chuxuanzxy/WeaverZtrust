@@ -46,20 +46,52 @@ type Policy struct {
 }
 
 type AccessLog struct {
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"user_id,omitempty"`
-	Username    string    `json:"username,omitempty"`
-	SourceIP    string    `json:"source_ip"`
-	Domain      string    `json:"domain"`
-	Path        string    `json:"path"`
-	Method      string    `json:"method"`
-	StatusCode  int       `json:"status_code"`
-	DurationMS  int64     `json:"duration_ms"`
-	ProxyResult string    `json:"proxy_result"`
-	UserAgent   string    `json:"user_agent"`
-	Browser     string    `json:"browser"`
-	OS          string    `json:"os"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID              int64             `json:"id"`
+	AppID           int64             `json:"app_id,omitempty"`
+	UserID          int64             `json:"user_id,omitempty"`
+	Username        string            `json:"username,omitempty"`
+	SourceIP        string            `json:"source_ip"`
+	Domain          string            `json:"domain"`
+	Path            string            `json:"path"`
+	Method          string            `json:"method"`
+	StatusCode      int               `json:"status_code"`
+	DurationMS      int64             `json:"duration_ms"`
+	ProxyResult     string            `json:"proxy_result"`
+	UserAgent       string            `json:"user_agent"`
+	Browser         string            `json:"browser"`
+	OS              string            `json:"os"`
+	BodyRuleID      int64             `json:"body_rule_id,omitempty"`
+	HasRequestBody  bool              `json:"has_request_body"`
+	HasResponseBody bool              `json:"has_response_body"`
+	RequestBody     *AuditBodyPayload `json:"request_body,omitempty"`
+	ResponseBody    *AuditBodyPayload `json:"response_body,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+}
+
+type AuditBodyPayload struct {
+	ContentType  string `json:"content_type"`
+	Body         string `json:"body"`
+	OriginalSize int    `json:"original_size,omitempty"`
+	StoredSize   int    `json:"stored_size,omitempty"`
+	Truncated    bool   `json:"truncated"`
+	SHA256       string `json:"sha256,omitempty"`
+}
+
+type BodyAuditRule struct {
+	ID              int64     `json:"id"`
+	Name            string    `json:"name"`
+	AppID           int64     `json:"app_id,omitempty"`
+	PathPattern     string    `json:"path_pattern"`
+	MatchType       string    `json:"match_type"`
+	Methods         []string  `json:"methods"`
+	StatusMin       int       `json:"status_min,omitempty"`
+	StatusMax       int       `json:"status_max,omitempty"`
+	CaptureRequest  bool      `json:"capture_request"`
+	CaptureResponse bool      `json:"capture_response"`
+	MaxBodyBytes    int       `json:"max_body_bytes"`
+	Enabled         bool      `json:"enabled"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type LoginLog struct {

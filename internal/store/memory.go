@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"ztrust/internal/audit"
 	"ztrust/internal/auth"
 	"ztrust/internal/model"
 )
@@ -47,6 +49,7 @@ type MemoryStore struct {
 	apps       map[int64]model.App
 	appByHost  map[string]int64
 	policies   map[int64]model.Policy
+	bodyRules  map[int64]model.BodyAuditRule
 	sessions   map[string]Session
 
 	accessLogs []model.AccessLog
@@ -64,6 +67,7 @@ func NewMemoryStore(sessionTTL time.Duration) *MemoryStore {
 		apps:       map[int64]model.App{},
 		appByHost:  map[string]int64{},
 		policies:   map[int64]model.Policy{},
+		bodyRules:  map[int64]model.BodyAuditRule{},
 		sessions:   map[string]Session{},
 	}
 }
@@ -400,11 +404,63 @@ func (s *MemoryStore) ListPolicies() []model.Policy {
 	return out
 }
 
+func (s *MemoryStore) CreateBodyAuditRule(rule model.BodyAuditRule) (model.BodyAuditRule, error) {
+	now := time.Now()
+	rule = normalizeBodyAuditRule(rule)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rule.ID = s.id()
+	rule.CreatedAt = now
+	rule.UpdatedAt = now
+	s.bodyRules[rule.ID] = rule
+	return rule, nil
+}
+
+func (s *MemoryStore) UpdateBodyAuditRule(rule model.BodyAuditRule) (model.BodyAuditRule, error) {
+	now := time.Now()
+	rule = normalizeBodyAuditRule(rule)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.bodyRules[rule.ID]
+	if !ok {
+		return model.BodyAuditRule{}, ErrNotFound
+	}
+	rule.CreatedAt = current.CreatedAt
+	rule.UpdatedAt = now
+	s.bodyRules[rule.ID] = rule
+	return rule, nil
+}
+
+func (s *MemoryStore) DeleteBodyAuditRule(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.bodyRules[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.bodyRules, id)
+	return nil
+}
+
+func (s *MemoryStore) ListBodyAuditRules() []model.BodyAuditRule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]model.BodyAuditRule, 0, len(s.bodyRules))
+	for _, rule := range s.bodyRules {
+		out = append(out, rule)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 func (s *MemoryStore) AddAccessLog(log model.AccessLog) model.AccessLog {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	log.ID = s.id()
 	log.CreatedAt = time.Now()
+	if log.AppID == 0 {
+		log.AppID = s.appIDForDomainLocked(log.Domain)
+	}
+	s.applyBodyAuditRuleLocked(&log)
 	s.accessLogs = append(s.accessLogs, log)
 	return log
 }
@@ -441,9 +497,20 @@ func (s *MemoryStore) ListAccessLogs(filter AccessLogFilter) []model.AccessLog {
 		if filter.To != nil && item.CreatedAt.After(*filter.To) {
 			continue
 		}
-		matched = append(matched, item)
+		matched = append(matched, stripAccessLogBodies(item))
 	}
 	return tail(matched, filter.Limit)
+}
+
+func (s *MemoryStore) GetAccessLog(id int64) (model.AccessLog, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, item := range s.accessLogs {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return model.AccessLog{}, ErrNotFound
 }
 
 func (s *MemoryStore) ListLoginLogs(limit int) []model.LoginLog {
@@ -500,6 +567,51 @@ func (s *MemoryStore) allowedLocked(userID, appID int64) bool {
 	return allowed
 }
 
+func (s *MemoryStore) appIDForDomainLocked(domain string) int64 {
+	if id, ok := s.appByHost[normalizeHost(domain)]; ok {
+		return id
+	}
+	return 0
+}
+
+func (s *MemoryStore) applyBodyAuditRuleLocked(log *model.AccessLog) {
+	rule, ok := s.matchBodyAuditRuleLocked(*log)
+	if !ok {
+		log.RequestBody = nil
+		log.ResponseBody = nil
+		return
+	}
+	log.BodyRuleID = rule.ID
+	if rule.CaptureRequest {
+		log.RequestBody = audit.PrepareBodyPayload(log.RequestBody, rule.MaxBodyBytes)
+	}
+	if rule.CaptureResponse {
+		log.ResponseBody = audit.PrepareBodyPayload(log.ResponseBody, rule.MaxBodyBytes)
+	}
+	if !rule.CaptureRequest {
+		log.RequestBody = nil
+	}
+	if !rule.CaptureResponse {
+		log.ResponseBody = nil
+	}
+	log.HasRequestBody = log.RequestBody != nil
+	log.HasResponseBody = log.ResponseBody != nil
+}
+
+func (s *MemoryStore) matchBodyAuditRuleLocked(log model.AccessLog) (model.BodyAuditRule, bool) {
+	rules := make([]model.BodyAuditRule, 0, len(s.bodyRules))
+	for _, rule := range s.bodyRules {
+		rules = append(rules, rule)
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	for _, rule := range rules {
+		if bodyAuditRuleMatches(rule, log) {
+			return rule, true
+		}
+	}
+	return model.BodyAuditRule{}, false
+}
+
 func (s *MemoryStore) id() int64 {
 	id := s.nextID
 	s.nextID++
@@ -545,4 +657,69 @@ func removeID(items []int64, id int64) []int64 {
 		}
 	}
 	return out
+}
+
+func normalizeBodyAuditRule(rule model.BodyAuditRule) model.BodyAuditRule {
+	rule.Name = strings.TrimSpace(rule.Name)
+	rule.PathPattern = strings.TrimSpace(rule.PathPattern)
+	rule.MatchType = strings.ToLower(strings.TrimSpace(rule.MatchType))
+	if rule.MatchType == "" {
+		rule.MatchType = "prefix"
+	}
+	methods := make([]string, 0, len(rule.Methods))
+	for _, method := range rule.Methods {
+		method = strings.ToUpper(strings.TrimSpace(method))
+		if method != "" {
+			methods = append(methods, method)
+		}
+	}
+	rule.Methods = methods
+	if rule.MaxBodyBytes <= 0 {
+		rule.MaxBodyBytes = audit.DefaultMaxBodyBytes
+	}
+	return rule
+}
+
+func bodyAuditRuleMatches(rule model.BodyAuditRule, log model.AccessLog) bool {
+	if !rule.Enabled {
+		return false
+	}
+	if rule.AppID > 0 && rule.AppID != log.AppID {
+		return false
+	}
+	if len(rule.Methods) > 0 && !containsString(rule.Methods, strings.ToUpper(log.Method)) {
+		return false
+	}
+	if rule.StatusMin > 0 && log.StatusCode < rule.StatusMin {
+		return false
+	}
+	if rule.StatusMax > 0 && log.StatusCode > rule.StatusMax {
+		return false
+	}
+	if rule.PathPattern == "" {
+		return true
+	}
+	switch rule.MatchType {
+	case "exact":
+		return log.Path == rule.PathPattern
+	case "contains":
+		return strings.Contains(log.Path, rule.PathPattern)
+	default:
+		return strings.HasPrefix(log.Path, rule.PathPattern)
+	}
+}
+
+func containsString(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func stripAccessLogBodies(log model.AccessLog) model.AccessLog {
+	log.RequestBody = nil
+	log.ResponseBody = nil
+	return log
 }

@@ -29,9 +29,15 @@ type Backend interface {
 	DeletePolicy(id int64) error
 	ListPolicies() []model.Policy
 
+	CreateBodyAuditRule(rule model.BodyAuditRule) (model.BodyAuditRule, error)
+	UpdateBodyAuditRule(rule model.BodyAuditRule) (model.BodyAuditRule, error)
+	DeleteBodyAuditRule(id int64) error
+	ListBodyAuditRules() []model.BodyAuditRule
+
 	AddAccessLog(log model.AccessLog) model.AccessLog
 	AddAdminLog(log model.AdminLog) model.AdminLog
 	ListAccessLogs(filter AccessLogFilter) []model.AccessLog
+	GetAccessLog(id int64) (model.AccessLog, error)
 	ListLoginLogs(limit int) []model.LoginLog
 	ListAdminLogs(limit int) []model.AdminLog
 }

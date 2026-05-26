@@ -10,6 +10,15 @@ CREATE TABLE users (
   updated_at DATETIME NOT NULL
 );
 
+CREATE TABLE sessions (
+  token VARCHAR(128) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL,
+  INDEX idx_sessions_user (user_id),
+  INDEX idx_sessions_expires (expires_at)
+);
+
 CREATE TABLE user_groups (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(128) NOT NULL UNIQUE,
@@ -49,8 +58,28 @@ CREATE TABLE policies (
   INDEX idx_policies_app_subject (app_id, subject, subject_id)
 );
 
+CREATE TABLE body_audit_rules (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  app_id BIGINT NULL,
+  path_pattern VARCHAR(1024) NOT NULL DEFAULT '',
+  match_type VARCHAR(32) NOT NULL DEFAULT 'prefix',
+  methods VARCHAR(128) NULL,
+  status_min INT NULL,
+  status_max INT NULL,
+  capture_request BOOLEAN NOT NULL DEFAULT TRUE,
+  capture_response BOOLEAN NOT NULL DEFAULT TRUE,
+  max_body_bytes INT NOT NULL DEFAULT 65536,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  INDEX idx_body_audit_rules_app (app_id),
+  INDEX idx_body_audit_rules_enabled (enabled)
+);
+
 CREATE TABLE access_logs (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  app_id BIGINT NULL,
   user_id BIGINT NULL,
   username VARCHAR(128) NULL,
   source_ip VARCHAR(64) NOT NULL,
@@ -63,11 +92,30 @@ CREATE TABLE access_logs (
   user_agent VARCHAR(1024) NOT NULL DEFAULT '',
   browser VARCHAR(64) NOT NULL DEFAULT '',
   os VARCHAR(64) NOT NULL DEFAULT '',
+  body_rule_id BIGINT NULL,
+  has_request_body BOOLEAN NOT NULL DEFAULT FALSE,
+  has_response_body BOOLEAN NOT NULL DEFAULT FALSE,
   created_at DATETIME NOT NULL,
+  INDEX idx_access_logs_app_time (app_id, created_at),
   INDEX idx_access_logs_user_time (user_id, created_at),
   INDEX idx_access_logs_ip_time (source_ip, created_at),
   INDEX idx_access_logs_domain_time (domain, created_at),
   INDEX idx_access_logs_status_time (status_code, created_at)
+);
+
+CREATE TABLE access_log_bodies (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  access_log_id BIGINT NOT NULL,
+  direction VARCHAR(16) NOT NULL,
+  content_type VARCHAR(255) NOT NULL DEFAULT '',
+  body LONGTEXT NOT NULL,
+  original_size INT NOT NULL DEFAULT 0,
+  stored_size INT NOT NULL DEFAULT 0,
+  truncated BOOLEAN NOT NULL DEFAULT FALSE,
+  sha256 CHAR(64) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uk_access_log_bodies_direction (access_log_id, direction),
+  INDEX idx_access_log_bodies_log (access_log_id)
 );
 
 CREATE TABLE login_logs (
@@ -94,4 +142,3 @@ CREATE TABLE admin_logs (
   INDEX idx_admin_logs_admin_time (admin_user_id, created_at),
   INDEX idx_admin_logs_object_time (object_type, object_id, created_at)
 );
-

@@ -200,6 +200,95 @@ func TestAdminCRUDLifecycle(t *testing.T) {
 	doNoContent(t, handler, http.MethodDelete, "/admin/apps/"+itoa(app.ID), adminCookie)
 }
 
+func TestBodyAuditRuleCapturesAndRedactsBodies(t *testing.T) {
+	cfg := config.Config{
+		CookieName:    "ztrust_session",
+		SessionTTL:    time.Hour,
+		AdminUser:     "admin",
+		AdminPassword: "secret",
+	}
+	st := store.NewMemoryStore(cfg.SessionTTL)
+	if err := st.BootstrapAdmin(cfg.AdminUser, cfg.AdminPassword); err != nil {
+		t.Fatalf("bootstrap admin: %v", err)
+	}
+	handler := NewServer(cfg, st)
+	adminCookie := login(t, handler, "admin", "secret")
+
+	rule := doJSON[model.BodyAuditRule](t, handler, http.MethodPost, "/admin/body-rules", adminCookie, map[string]any{
+		"name":             "workflow body audit",
+		"path_pattern":     "/workflow",
+		"match_type":       "prefix",
+		"methods":          []string{"POST"},
+		"status_min":       200,
+		"status_max":       299,
+		"capture_request":  true,
+		"capture_response": true,
+		"max_body_bytes":   4096,
+		"enabled":          true,
+	})
+	if rule.ID == 0 || !rule.Enabled {
+		t.Fatalf("unexpected body audit rule: %#v", rule)
+	}
+
+	created := doJSON[model.AccessLog](t, handler, http.MethodPost, "/audit/access", nil, map[string]any{
+		"username":     "zhangsan",
+		"source_ip":    "192.0.2.10",
+		"domain":       "www.e-cology.com.cn",
+		"path":         "/workflow/request",
+		"method":       "POST",
+		"status_code":  200,
+		"duration_ms":  31,
+		"proxy_result": "200",
+		"request_body": map[string]any{
+			"content_type": "application/json",
+			"body":         `{"password":"secret","mobile":"13812345678","payload":"ok"}`,
+		},
+		"response_body": map[string]any{
+			"content_type": "application/json",
+			"body":         `{"token":"abc123","result":"success"}`,
+		},
+	})
+	if !created.HasRequestBody || !created.HasResponseBody || created.BodyRuleID != rule.ID {
+		t.Fatalf("body flags were not set: %#v", created)
+	}
+
+	logs := doJSON[[]model.AccessLog](t, handler, http.MethodGet, "/admin/audit/access?path=workflow", adminCookie, nil)
+	if len(logs) != 1 {
+		t.Fatalf("access log count = %d", len(logs))
+	}
+	if logs[0].RequestBody != nil || logs[0].ResponseBody != nil {
+		t.Fatalf("list endpoint should not include bodies: %#v", logs[0])
+	}
+	if !logs[0].HasRequestBody || !logs[0].HasResponseBody {
+		t.Fatalf("list endpoint lost body flags: %#v", logs[0])
+	}
+
+	detail := doJSON[model.AccessLog](t, handler, http.MethodGet, "/admin/audit/access/"+itoa(created.ID), adminCookie, nil)
+	if detail.RequestBody == nil || detail.ResponseBody == nil {
+		t.Fatalf("detail endpoint did not include bodies: %#v", detail)
+	}
+	combined := detail.RequestBody.Body + detail.ResponseBody.Body
+	for _, secret := range []string{"secret", "abc123", "13812345678"} {
+		if strings.Contains(combined, secret) {
+			t.Fatalf("sensitive value %q was not redacted in %s", secret, combined)
+		}
+	}
+	if !strings.Contains(combined, "[REDACTED]") || !strings.Contains(combined, "138****5678") {
+		t.Fatalf("expected redacted body, got %s", combined)
+	}
+
+	adminLogs := doJSON[[]model.AdminLog](t, handler, http.MethodGet, "/admin/audit/admin?limit=20", adminCookie, nil)
+	foundView := false
+	for _, item := range adminLogs {
+		if item.ObjectType == "access_log" && item.ObjectID == created.ID && item.Action == "view_body" {
+			foundView = true
+		}
+	}
+	if !foundView {
+		t.Fatalf("viewing body should create an admin audit log: %#v", adminLogs)
+	}
+}
+
 func loginHeader(t *testing.T, handler http.Handler, host string) string {
 	t.Helper()
 	req := requestWithJSON(t, http.MethodPost, "/auth/login", map[string]any{"username": "admin", "password": "secret"})

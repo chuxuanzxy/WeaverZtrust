@@ -65,7 +65,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /admin/policies", s.requireAdmin(s.listPolicies))
 	s.mux.HandleFunc("POST /admin/policies", s.requireAdmin(s.createPolicy))
 	s.mux.HandleFunc("DELETE /admin/policies/{id}", s.requireAdmin(s.deletePolicy))
+	s.mux.HandleFunc("GET /admin/body-rules", s.requireAdmin(s.listBodyRules))
+	s.mux.HandleFunc("POST /admin/body-rules", s.requireAdmin(s.createBodyRule))
+	s.mux.HandleFunc("PUT /admin/body-rules/{id}", s.requireAdmin(s.updateBodyRule))
+	s.mux.HandleFunc("DELETE /admin/body-rules/{id}", s.requireAdmin(s.deleteBodyRule))
 	s.mux.HandleFunc("GET /admin/audit/access", s.requireAdmin(s.listAccessLogs))
+	s.mux.HandleFunc("GET /admin/audit/access/{id}", s.requireAdmin(s.getAccessLog))
 	s.mux.HandleFunc("GET /admin/audit/login", s.requireAdmin(s.listLoginLogs))
 	s.mux.HandleFunc("GET /admin/audit/admin", s.requireAdmin(s.listAdminLogs))
 }
@@ -373,6 +378,58 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request, admin mode
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) listBodyRules(w http.ResponseWriter, _ *http.Request, _ model.User) {
+	writeJSON(w, http.StatusOK, s.store.ListBodyAuditRules())
+}
+
+func (s *Server) createBodyRule(w http.ResponseWriter, r *http.Request, admin model.User) {
+	var rule model.BodyAuditRule
+	if err := decodeJSON(r, &rule); err != nil || !validBodyRule(rule) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	created, err := s.store.CreateBodyAuditRule(rule)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.auditAdmin(admin, "body_rule", created.ID, "create", "", fmt.Sprintf("name=%s app=%d path=%s", created.Name, created.AppID, created.PathPattern))
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) updateBodyRule(w http.ResponseWriter, r *http.Request, admin model.User) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var rule model.BodyAuditRule
+	if err := decodeJSON(r, &rule); err != nil || !validBodyRule(rule) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	rule.ID = id
+	updated, err := s.store.UpdateBodyAuditRule(rule)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	s.auditAdmin(admin, "body_rule", updated.ID, "update", "", fmt.Sprintf("name=%s enabled=%t max=%d", updated.Name, updated.Enabled, updated.MaxBodyBytes))
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) deleteBodyRule(w http.ResponseWriter, r *http.Request, admin model.User) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteBodyAuditRule(id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	s.auditAdmin(admin, "body_rule", id, "delete", "", "")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) listAccessLogs(w http.ResponseWriter, r *http.Request, _ model.User) {
 	statusCode, _ := strconv.Atoi(r.URL.Query().Get("status_code"))
 	filter := store.AccessLogFilter{
@@ -385,6 +442,22 @@ func (s *Server) listAccessLogs(w http.ResponseWriter, r *http.Request, _ model.
 		Limit:      queryLimit(r),
 	}
 	writeJSON(w, http.StatusOK, s.store.ListAccessLogs(filter))
+}
+
+func (s *Server) getAccessLog(w http.ResponseWriter, r *http.Request, admin model.User) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	log, err := s.store.GetAccessLog(id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if log.HasRequestBody || log.HasResponseBody {
+		s.auditAdmin(admin, "access_log", id, "view_body", "", fmt.Sprintf("path=%s", log.Path))
+	}
+	writeJSON(w, http.StatusOK, log)
 }
 
 func (s *Server) listLoginLogs(w http.ResponseWriter, r *http.Request, _ model.User) {
@@ -485,6 +558,30 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "already_exists")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error")
+	}
+}
+
+func validBodyRule(rule model.BodyAuditRule) bool {
+	if strings.TrimSpace(rule.Name) == "" {
+		return false
+	}
+	if !rule.CaptureRequest && !rule.CaptureResponse {
+		return false
+	}
+	if rule.StatusMin < 0 || rule.StatusMax < 0 {
+		return false
+	}
+	if rule.StatusMin > 0 && rule.StatusMax > 0 && rule.StatusMin > rule.StatusMax {
+		return false
+	}
+	if rule.MaxBodyBytes < 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(rule.MatchType)) {
+	case "", "prefix", "contains", "exact":
+		return true
+	default:
+		return false
 	}
 }
 

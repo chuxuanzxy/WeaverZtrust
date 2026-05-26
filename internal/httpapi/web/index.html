@@ -22,6 +22,7 @@
           <button class="nav-item" data-view="users" title="用户管理">用户</button>
           <button class="nav-item" data-view="groups" title="用户组管理">用户组</button>
           <button class="nav-item" data-view="policies" title="授权策略">授权</button>
+          <button class="nav-item" data-view="bodyRules" title="正文审计规则">正文规则</button>
           <button class="nav-item" data-view="logs" title="审计日志">审计</button>
         </nav>
       </aside>
@@ -61,6 +62,7 @@
               <article class="metric"><span>用户</span><strong id="metricUsers">0</strong></article>
               <article class="metric"><span>用户组</span><strong id="metricGroups">0</strong></article>
               <article class="metric"><span>授权策略</span><strong id="metricPolicies">0</strong></article>
+              <article class="metric"><span>正文规则</span><strong id="metricBodyRules">0</strong></article>
             </div>
             <div class="grid two">
               <section class="panel">
@@ -186,6 +188,43 @@
             </div>
           </section>
 
+          <section class="view" data-view-panel="bodyRules">
+            <div class="grid form-list">
+              <form id="bodyRuleForm" class="panel form-panel">
+                <h3>新增正文规则</h3>
+                <label>规则名称<input name="name" required placeholder="审批接口正文审计" /></label>
+                <label>应用 ID<input name="app_id" type="number" min="0" placeholder="留空表示全部应用" /></label>
+                <label>路径匹配<input name="path_pattern" placeholder="/workflow" /></label>
+                <label>匹配方式
+                  <select name="match_type">
+                    <option value="prefix">前缀</option>
+                    <option value="contains">包含</option>
+                    <option value="exact">精确</option>
+                  </select>
+                </label>
+                <label>HTTP 方法<input name="methods" placeholder="POST,PUT，留空表示全部" /></label>
+                <div class="inline-fields">
+                  <label>状态下限<input name="status_min" type="number" min="100" max="599" placeholder="100" /></label>
+                  <label>状态上限<input name="status_max" type="number" min="100" max="599" placeholder="599" /></label>
+                </div>
+                <label>最大保存字节<input name="max_body_bytes" type="number" min="1024" value="65536" /></label>
+                <label class="check"><input name="capture_request" type="checkbox" checked />记录请求体</label>
+                <label class="check"><input name="capture_response" type="checkbox" checked />记录响应体</label>
+                <label class="check"><input name="enabled" type="checkbox" checked />启用</label>
+                <button class="primary-btn" type="submit">保存规则</button>
+              </form>
+              <section class="panel">
+                <h3>正文审计规则</h3>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>ID</th><th>名称</th><th>应用</th><th>路径</th><th>方法</th><th>正文</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody id="bodyRuleRows"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+
           <section class="view" data-view-panel="logs">
             <section class="panel">
               <div class="panel-head">
@@ -205,7 +244,7 @@
               </form>
               <div class="table-wrap log-table active" data-log-panel="access">
                 <table>
-                  <thead><tr><th>时间</th><th>用户</th><th>IP</th><th>路径</th><th>状态</th><th>耗时</th><th>UA</th></tr></thead>
+                  <thead><tr><th>时间</th><th>用户</th><th>IP</th><th>路径</th><th>状态</th><th>耗时</th><th>正文</th><th>UA</th><th>操作</th></tr></thead>
                   <tbody id="accessLogRows"></tbody>
                 </table>
               </div>
@@ -227,6 +266,25 @@
       </main>
     </div>
     <div id="toast" class="toast" role="status"></div>
+    <dialog id="accessDetailDialog" class="detail-dialog">
+      <div class="dialog-head">
+        <div>
+          <h3>访问日志详情</h3>
+          <p id="accessDetailMeta">-</p>
+        </div>
+        <button id="closeAccessDetail" class="icon-btn" title="关闭">×</button>
+      </div>
+      <div class="body-grid">
+        <section>
+          <div class="section-title">请求体</div>
+          <pre id="requestBodyView" class="body-view">暂无请求体</pre>
+        </section>
+        <section>
+          <div class="section-title">响应体</div>
+          <pre id="responseBodyView" class="body-view">暂无响应体</pre>
+        </section>
+      </div>
+    </dialog>
     <script src="/ui/app.js"></script>
   </body>
 </html>

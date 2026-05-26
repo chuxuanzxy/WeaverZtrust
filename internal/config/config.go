@@ -8,6 +8,8 @@ import (
 
 type Config struct {
 	ListenAddr     string
+	Store          string
+	MySQLDSN       string
 	CookieName     string
 	CookieDomain   string
 	SessionTTL     time.Duration
@@ -21,6 +23,8 @@ type Config struct {
 func Load() Config {
 	return Config{
 		ListenAddr:     env("ZTRUST_LISTEN_ADDR", ":8080"),
+		Store:          env("ZTRUST_STORE", "memory"),
+		MySQLDSN:       os.Getenv("ZTRUST_MYSQL_DSN"),
 		CookieName:     env("ZTRUST_COOKIE_NAME", "ztrust_session"),
 		CookieDomain:   os.Getenv("ZTRUST_COOKIE_DOMAIN"),
 		SessionTTL:     time.Duration(envInt("ZTRUST_SESSION_TTL_SECONDS", 8*3600)) * time.Second,

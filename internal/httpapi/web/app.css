@@ -193,7 +193,7 @@ button {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -246,6 +246,12 @@ label {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 input,
@@ -408,6 +414,78 @@ td {
   transform: translateY(0);
 }
 
+.detail-dialog {
+  width: min(1120px, calc(100vw - 36px));
+  max-height: min(820px, calc(100vh - 36px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.detail-dialog::backdrop {
+  background: rgba(23, 32, 42, 0.36);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-head h3,
+.dialog-head p {
+  margin: 0;
+}
+
+.dialog-head p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.body-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.body-grid section {
+  min-width: 0;
+  padding: 16px;
+}
+
+.body-grid section + section {
+  border-left: 1px solid var(--line);
+}
+
+.section-title {
+  margin-bottom: 10px;
+  color: #526070;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.body-view {
+  min-height: 360px;
+  max-height: 560px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #101820;
+  color: #e7edf4;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 920px) {
   .shell {
     grid-template-columns: 1fr;
@@ -425,7 +503,7 @@ td {
   }
 
   .nav {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .nav-item {
@@ -440,8 +518,15 @@ td {
   .grid.two,
   .form-list,
   .metrics,
-  .filters {
+  .filters,
+  .inline-fields,
+  .body-grid {
     grid-template-columns: 1fr;
+  }
+
+  .body-grid section + section {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .topbar {
